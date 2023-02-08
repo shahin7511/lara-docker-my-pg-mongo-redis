@@ -1,0 +1,129 @@
+networks:
+  my_app_network:
+
+services:
+
+  ### NGINX/PHP Container #########################################
+  app:
+    build:
+      #directory to search for the Dockerfile
+      context: .
+      #used so we can install custom php extensions; image is also defined in the Dockerfile
+      dockerfile: Dockerfile
+
+    container_name: my_app_app
+
+    #laravel needs this
+    environment:
+      DB_HOST: mongodb
+
+    #This section overrides the Dockerfiles settings (which is what you want for testing)
+    volumes:
+      #mounting entire git repo to the container (from:to)
+      - ./:/var/www/html
+
+      #mounting nginx config to the container (from:to)
+      - ./configs/nginx/default.conf:/etc/nginx/sites-enabled/default
+
+    networks:
+      - my_app_network
+
+    ports:
+      - "8080:80"
+      - "4433:443"
+
+    #we depend on these to start first
+    depends_on:
+      - pgsql
+      - mysql
+      - redis
+      - mongodb
+
+  ### Redis Container #########################################
+  redis:
+    image: redis
+    container_name: my_app_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./configs/redis/conf:/usr/local/etc/redis
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    restart: always
+    networks:
+      - my_app_network
+
+
+  ### MongoDB Container #########################################
+  mongodb:
+    container_name: my_app_mongodb
+    image: mongo
+    volumes:
+      - mongodata:/var/lib/mongodata
+    ports:
+      - "27017:27017"
+    restart: unless-stopped
+    logging:
+        driver: none
+    environment:
+      POSTGRES_PASSWORD: '${DB_PASSWORD}'
+      POSTGRES_USER: mongosuser
+    networks:
+      - my_app_network
+
+  ### PGSQL Container #########################################
+  pgsql:
+    image: postgres:14.3
+    container_name: my_app_pgsql
+    volumes:
+      - pgsqldata:/var/lib/pgsql
+    restart: unless-stopped
+
+     #using a different port in case you have multiple mysql instances
+    ports:
+      - "5432:5432"
+
+    environment:
+      POSTGRES_PASSWORD: '${DB_PASSWORD}'
+      POSTGRES_USER: postgresuser
+      SERVICE_TAGS: dev
+      POSTGRES_HOST_AUTH_METHOD: trust
+      SERVICE_NAME: pgsql
+      PGDATA: /var/lib/postgresql/data
+    networks:
+      - my_app_network
+
+  ### MySQL Container #########################################
+  mysql:
+    image: mariadb:10.3.16
+    container_name: my_app_mysql
+    volumes:
+      - mysqldata:/var/lib/mysql
+
+    #if the container is stopped; restart it
+    restart: unless-stopped
+
+    #enable a shell in case we need to interact with mysql
+    tty: true
+
+    #using a different port in case you have multiple mysql instances
+    ports:
+      - "3306:3306"
+
+    environment:
+      MYSQL_DATABASE: '${DB_DATABASE}'
+      MYSQL_USER: '${DB_USER}'
+      MYSQL_PASSWORD: '${DB_PASSWORD}'
+      MYSQL_ROOT_PASSWORD: secret
+      SERVICE_TAGS: dev
+      SERVICE_NAME: mysql
+
+    networks:
+      - my_app_network
+volumes:
+  mysqldata:
+    driver: local
+  pgsqldata:
+    driver: local
+  mongodata:
+    driver: local
+
